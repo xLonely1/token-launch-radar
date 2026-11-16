@@ -4,9 +4,6 @@ A token launch radar for make.fun's "Build the best token launch radar" bounty
 ($1,325 in USDC). It reads a sealed DefiLlama snapshot, ranks pre-token protocols by
 implied launch value, and shows a static dashboard with a farm plan for each one.
 
-> Repo name is provisional (`token-launch-radar` under `xlonely1`) until the real
-> GitHub repo is created — re-check the badge URLs against the real repo at submit time.
-
 [![make.fun · token-radar-01](https://make.fun/badge/token-radar-01.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
 [![rank](https://make.fun/badge/token-radar-01/xlonely1/token-launch-radar/rank.svg)](https://make.fun/bounty/token-radar-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
 [![reward](https://make.fun/badge/token-radar-01/xlonely1/token-launch-radar/reward.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
