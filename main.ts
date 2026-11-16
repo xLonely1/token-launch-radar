@@ -13,6 +13,10 @@
 //
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts --input ../input/snapshot.json
+//
+// Usage: node main.ts [--input <snapshot.json|directory>] [--output <directory>]
+//   --help prints this usage and exits; --input defaults to /input, --output to
+//   MAKEFUN_OUTPUT_DIR or /output.
 
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -21,7 +25,7 @@ import { boardIssue, buildRadar, dataScript, parseSnapshot } from './lib/model.t
 import type { BoardRow, RadarData, Snapshot } from './lib/model.ts';
 import { buildDossier } from './vendor/makefun-board.ts';
 
-const here = fileURLToPath(new URL('.', import.meta.url));
+const entryDir = fileURLToPath(new URL('.', import.meta.url));
 
 /** The entrypoint's own caps: the text cap shapes the dossier's bytes, the rest refuse. */
 const TEXT_MAX_BYTES = 65_536;
@@ -32,10 +36,25 @@ const IMAGE_NAME = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$/;
 const DEFAULT_INPUT = '/input';
 const DEFAULT_OUTPUT = '/output';
 
+/** The dossier's own options, fixed for this competition. */
+const DOSSIER_OPTIONS = { text_max_bytes: TEXT_MAX_BYTES, screenshots: SCREENSHOT_CAPS, dashboard: DASHBOARD_CAPS };
+
+/** The usage text --help prints. */
+const USAGE = [
+  'token radar: usage: node main.ts [--input <snapshot.json|directory>] [--output <directory>]',
+  'token radar: reads the sealed snapshot, scores every pre-token protocol, and writes board.json, data.js, dashboard/, screenshots/ and dossier.json',
+].join('\n');
+
 /** Stop with a message on stderr and the given exit code. */
 function fail(message: string, code: number): never {
   process.stderr.write(message);
   process.exit(code);
+}
+
+/** Print the usage text and stop successfully. */
+function printUsageAndExit(): never {
+  process.stdout.write(`${USAGE}\n`);
+  process.exit(0);
 }
 
 /** The value of `--name <value>` or `--name=<value>` in the arguments, if either is there. */
@@ -79,67 +98,95 @@ function scoreSnapshot(snapshot: Snapshot): { board: BoardRow[]; radar: RadarDat
   return { board, radar };
 }
 
-/** The ranked board and the dashboard dataset, written into the output directory. */
-function writeBoard(out: string, board: BoardRow[], radar: RadarData): void {
-  mkdirSync(out, { recursive: true });
-  writeFileSync(join(out, 'board.json'), `${JSON.stringify({ rows: board })}\n`);
-  writeFileSync(join(out, 'data.js'), dataScript(radar));
+/** The ranked board as board.json. */
+function writeBoardJson(outputDir: string, board: BoardRow[]): void {
+  writeFileSync(join(outputDir, 'board.json'), `${JSON.stringify({ rows: board })}\n`);
 }
 
-/** Copy one directory's regular files into `to`, skipping names that start with a dot. */
+/** The dashboard's dataset as data.js. */
+function writeDataScriptFile(outputDir: string, radar: RadarData): void {
+  writeFileSync(join(outputDir, 'data.js'), dataScript(radar));
+}
+
+/** The ranked board and the dashboard dataset, written into the output directory. */
+function writeBoard(outputDir: string, board: BoardRow[], radar: RadarData): void {
+  mkdirSync(outputDir, { recursive: true });
+  writeBoardJson(outputDir, board);
+  writeDataScriptFile(outputDir, radar);
+}
+
+/** The regular files of one directory, skipping names that start with a dot. */
+function listFiles(dir: string): string[] {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir).filter((name) => !name.startsWith('.'));
+}
+
+/** Copy one regular file, skipping anything that is not a file. */
+function copyOneFile(from: string, to: string, name: string): boolean {
+  const path = join(from, name);
+  if (!statSync(path).isFile()) return false;
+  copyFileSync(path, join(to, name));
+  return true;
+}
+
+/** Copy one directory's regular files into `to`, returning the names copied. */
 function copyFiles(from: string, to: string): string[] {
   if (!existsSync(from)) return [];
   mkdirSync(to, { recursive: true });
   const copied: string[] = [];
-  for (const name of readdirSync(from)) {
-    if (name.startsWith('.')) continue;
-    const path = join(from, name);
-    if (!statSync(path).isFile()) continue;
-    copyFileSync(path, join(to, name));
-    copied.push(name);
+  for (const name of listFiles(from)) {
+    if (copyOneFile(from, to, name)) copied.push(name);
   }
   return copied;
 }
 
-/** The screenshots a hand-in needs: at least three, each with a gate-legal name. */
-function checkScreenshots(shots: string[]): void {
-  if (shots.length < MIN_SCREENSHOTS) {
+/** The count a hand-in needs: at least three screenshots. */
+function checkScreenshotCount(names: string[]): void {
+  if (names.length < MIN_SCREENSHOTS) {
     fail(
-      `token radar: screenshots/ holds ${shots.length} image${shots.length === 1 ? '' : 's'}: hand in 3, the board, a detail view and a filtered view\n`,
+      `token radar: screenshots/ holds ${names.length} image${names.length === 1 ? '' : 's'}: hand in 3, the board, a detail view and a filtered view\n`,
       1,
     );
   }
-  for (const name of shots) {
+}
+
+/** Every screenshot's name must be one the gate accepts. */
+function checkScreenshotNames(names: string[]): void {
+  for (const name of names) {
     if (!IMAGE_NAME.test(name)) {
       fail(`token radar: screenshots/${name}: a name is letters, digits and . _ -, 1 to 128 characters\n`, 1);
     }
   }
 }
 
+/** The screenshots a hand-in needs: at least three, each with a gate-legal name. */
+function checkScreenshots(shotNames: string[]): void {
+  checkScreenshotCount(shotNames);
+  checkScreenshotNames(shotNames);
+}
+
 /** The dossier, written last: the scorer rebuilds it from this /output and compares bytes. */
-function writeDossier(out: string): void {
-  writeFileSync(
-    join(out, 'dossier.json'),
-    buildDossier(out, { text_max_bytes: TEXT_MAX_BYTES, screenshots: SCREENSHOT_CAPS, dashboard: DASHBOARD_CAPS }),
-  );
+function writeDossier(outputDir: string): void {
+  writeFileSync(join(outputDir, 'dossier.json'), buildDossier(outputDir, DOSSIER_OPTIONS));
 }
 
 /** The run's two summary lines on stdout. */
-function printSummary(snapshot: Snapshot, board: BoardRow[], radar: RadarData, out: string, shots: string[]): void {
+function printSummary(snapshot: Snapshot, board: BoardRow[], radar: RadarData, outputDir: string, shotNames: string[]): void {
   process.stdout.write(
     `token radar: ${snapshot.protocols.length} protocols, ${snapshot.watchlist.length} on the watchlist, ${board.length} rows scored (${radar.early_size} early, ${radar.live_size} live set aside)\n` +
-      `token radar: wrote ${join(out, 'board.json')}, ${join(out, 'data.js')}, ${join(out, 'dashboard')} (3 files), ${join(out, 'screenshots')} (${shots.length} images) and ${join(out, 'dossier.json')}\n`,
+      `token radar: wrote ${join(outputDir, 'board.json')}, ${join(outputDir, 'data.js')}, ${join(outputDir, 'dashboard')} (3 files), ${join(outputDir, 'screenshots')} (${shotNames.length} images) and ${join(outputDir, 'dossier.json')}\n`,
   );
 }
 
+if (process.argv.includes('--help') || process.argv.includes('-h')) printUsageAndExit();
 const inputArg = flag('input', DEFAULT_INPUT);
 const inputFile = resolveSnapshotPath(inputArg);
-const out = flag('output', process.env.MAKEFUN_OUTPUT_DIR ?? DEFAULT_OUTPUT);
+const outputDir = flag('output', process.env.MAKEFUN_OUTPUT_DIR ?? DEFAULT_OUTPUT);
 const snapshot = loadSnapshot(inputFile);
 const { board, radar } = scoreSnapshot(snapshot);
-writeBoard(out, board, radar);
-copyFiles(join(here, 'dashboard'), join(out, 'dashboard'));
-const shots = copyFiles(join(here, 'screenshots'), join(out, 'screenshots'));
-checkScreenshots(shots);
-writeDossier(out);
-printSummary(snapshot, board, radar, out, shots);
+writeBoard(outputDir, board, radar);
+copyFiles(join(entryDir, 'dashboard'), join(outputDir, 'dashboard'));
+const shotNames = copyFiles(join(entryDir, 'screenshots'), join(outputDir, 'screenshots'));
+checkScreenshots(shotNames);
+writeDossier(outputDir);
+printSummary(snapshot, board, radar, outputDir, shotNames);
