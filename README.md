@@ -8,11 +8,13 @@ implied launch value, and shows a static dashboard with a farm plan for each one
 [![rank](https://make.fun/badge/token-radar-01/xlonely1/token-launch-radar/rank.svg)](https://make.fun/bounty/token-radar-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
 [![reward](https://make.fun/badge/token-radar-01/xlonely1/token-launch-radar/reward.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
 
-## How it ranks (model radar-3)
+## How it ranks (model radar-4)
 
 Implied value is computed only from the snapshot's own figures, fitted at run
 time from the snapshot's traded tokens — no hardcoded names, no hardcoded
-coefficients:
+coefficients. Radar-4 keeps radar-3's fitted model exactly (same fit, same
+numbers) and changes the presentation: the dashboard states the model and its
+held-out test at run time, and every farm plan is netted to the dollar.
 
 ```
 implied = round(exp(a + b × log(tvl_usd) + category_effect))
@@ -29,8 +31,11 @@ implied = round(exp(a + b × log(tvl_usd) + category_effect))
   at least 2 traded comps. A category with one comp gets no effect: Risk
   Curators, the watchlist's largest category, has exactly one live comp.
 
-**Tested out of sample** (both models refit on the training part of each split
-only, so held-out tokens never leak into the fit):
+**Tested out of sample** — the program itself refits both models on the
+training part of each split only (so held-out tokens never leak into the fit)
+and prints the result on the dashboard, at the top of the board and in the
+"How implied value is computed" panel. The numbers below are what the program
+computes at run time from this snapshot, not numbers pasted in:
 
 | Held-out split | This model, median error | Old model, median error | This model, within 2x | Old model, within 2x |
 | --- | --- | --- | --- | --- |
@@ -53,7 +58,9 @@ The board covers all 40 watchlist protocols (TVL ≥ $50M, no token on record) p
 186 pre-token protocols below the floor, ranked strongest first. The 24 live-token
 protocols are set aside with their market caps shown, never mixed into the ranking.
 Every row carries a 10-step farm plan with a cost and a time per step, ending in a
-farm cost total and a net verdict that nets the farm against its own gas cost.
+farm cost total and a net verdict that nets the farm against its own gas cost in
+dollars — the detail view shows the same netting as a table (capital, gas, time,
+net if the launch allocates, net if it allocates nothing).
 
 ## Run it
 

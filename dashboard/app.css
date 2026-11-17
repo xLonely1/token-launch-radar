@@ -104,6 +104,11 @@ tbody tr[data-selected="true"] { background: color-mix(in srgb, var(--accent) 8%
 .model { margin-top: var(--step-4); padding: var(--step-5); display: grid; gap: var(--step-3); }
 .model h3 { margin-top: var(--step-2); }
 .model p { max-width: 78ch; }
+/* The one-paragraph model summary at the top of the board: the same panel treatment,
+   tighter, with an accent edge so the board screenshot carries the model with it. */
+.model-summary { margin-top: var(--step-4); padding: var(--step-4) var(--step-5); display: grid; gap: var(--step-2); border-left: 4px solid var(--accent); }
+.model-summary p { max-width: 90ch; font-size: 14px; }
+.model-summary p.sub { font-size: 12px; }
 .formula { font-family: var(--font-num); font-size: 13px; line-height: 1.7; color: var(--muted); overflow-wrap: anywhere; }
 table.oos { font-size: 13px; }
 table.oos th, table.oos td { padding: var(--step-2) var(--step-3); }
