@@ -26,20 +26,23 @@
     if (days >= 365) return (days / 365).toFixed(1) + 'y';
     return Math.max(0, Math.round(days)) + 'd';
   }
+  // A dollar amount as a short string: whole dollars plain, cents to two places.
+  function money(n) {
+    var r = Math.round(n * 100) / 100;
+    return Number.isInteger(r) ? '$' + r : '$' + r.toFixed(2);
+  }
+  function moneyLong(n) {
+    return '$' + Math.round(n).toLocaleString('en-US');
+  }
   // The model in one function: the page recomputes a row from the snapshot figures and checks the
   // number board.json carries, so the page's code and the board's data are visibly the same arithmetic.
-  // radar-2: TVL x the category's live-token median market-cap-to-TVL multiple, x growth, x maturity,
-  // x a small multi-chain reach factor.
-  function impliedOf(row, model) {
-    var mult = DATA.category_multiples[row.category || '__global__'];
-    if (mult === undefined || mult === null) mult = DATA.category_multiples.__global__;
-    var growth = Math.min(model.growth_cap, Math.max(model.growth_floor, row.change_7d === null || row.change_7d === undefined ? 0 : row.change_7d));
-    var growthMult = 1 + (growth / 100) * model.growth_weight;
-    var age = row.age_days === null || row.age_days === undefined ? model.unknown_age_days : row.age_days;
-    var maturity = model.maturity_floor + (Math.min(Math.max(age, 0), model.maturity_days) / model.maturity_days) * model.maturity_range;
-    var chains = row.chains ? row.chains.length : 0;
-    var reach = 1 + model.reach_step * Math.min(Math.max(chains - 1, 0), model.reach_max_extra_chains);
-    return Math.max(1, Math.round(row.tvl_usd * mult * growthMult * maturity * reach));
+  // radar-3: a log-log size curve fitted at runtime from this snapshot's traded tokens,
+  // log(mcap) = a + b * log(TVL), plus a shrunk category effect. The intercept, slope and every
+  // category effect live in DATA.fit, so the page fits nothing by hand.
+  function impliedOf(row) {
+    var fit = DATA.fit;
+    var effect = fit.effects[row.category || ''] || 0;
+    return Math.max(1, Math.round(Math.exp(fit.intercept + fit.slope * Math.log(row.tvl_usd) + effect)));
   }
 
   function el(tag, attrs) {
@@ -92,7 +95,7 @@
     if (c.indexOf('monad') >= 0) return { token: 'MON', tx: 0.1 };
     return { token: 'the chain’s gas token', tx: 1 };
   }
-  function gasTx(gas) { return '$' + gas.tx; }
+  function gasTx(gas) { return money(gas.tx); }
   function farmKind(p) {
     var c = (p.category || '').toLowerCase();
     if (c.indexOf('lend') >= 0 || c.indexOf('cdp') >= 0 || c.indexOf('collateral') >= 0) return 'lending';
@@ -163,6 +166,16 @@
     if (s.length < 20) s = s + " Hold the position and check the protocol's own page.";
     return s;
   }
+  // One plan's economics: the weekly actions the hold implies, the transactions the whole plan runs,
+  // what they cost in gas, and the active minutes the plan takes. Capital is tied up, not spent.
+  function farmEconomics(p) {
+    var hold = holdDaysFor(p.age_days);
+    var gas = gasFor(chainOf(p));
+    var weeks = Math.ceil(hold / 7);
+    var txs = 5 + weeks;
+    var gasTotal = Math.round(txs * gas.tx * 100) / 100;
+    return { weeks: weeks, txs: txs, gas_total: gasTotal, minutes: 50 + 25 * weeks };
+  }
   function farmSteps(p) {
     var chain = chainOf(p);
     var capital = capitalFor(p);
@@ -170,6 +183,9 @@
     var gas = gasFor(chain);
     var tx = gasTx(gas);
     var kind = farmKind(p);
+    var econ = farmEconomics(p);
+    var implied = p.implied_value_usd;
+    var share = Math.round(implied * 0.001);
     return [
       { text: 'Open a fresh wallet for this farm only, keep its seed phrase offline, and fund it with ' + gas.token + ' for gas on ' + chain + '.', cost: 'about ' + tx + ' of gas to prepare', time: '10 minutes to set up' },
       { text: actionFor(kind, p, capital, chain), cost: '$' + capital + ' of capital and about ' + tx + ' of gas', time: '15 minutes to set up' },
@@ -178,7 +194,9 @@
       { text: 'Hold the position for at least ' + hold + ' days so the activity is counted in more than one snapshot.', cost: 'the $' + capital + ' stays in the position', time: hold + ' days' },
       { text: "Open the protocol's own points or rewards page once a week and check that your activity is counted; claim only from the link it publishes.", cost: 'no fee to check, and never pay to claim', time: '10 minutes a week' },
       { text: riskFor(kind), cost: 'nothing unless you top up or unwind', time: '5 minutes a week to check' },
-      { text: 'When the token launches or the farm ends, withdraw in two steps — first the rewards, then the principal — and write every transaction in a farm log.', cost: 'about ' + tx + ' of gas to unwind', time: '15 minutes' }
+      { text: 'When the token launches or the farm ends, withdraw in two steps — first the rewards, then the principal — and write every transaction in a farm log.', cost: 'about ' + tx + ' of gas to unwind', time: '15 minutes' },
+      { text: 'Farm total: $' + capital + ' of capital at risk for ' + hold + ' days, about ' + money(econ.gas_total) + ' of gas across ' + econ.txs + ' transactions, and about ' + econ.minutes + ' minutes of active work. The capital comes back when you unwind; the gas does not.', cost: 'about ' + money(econ.gas_total) + ' of gas in total; the $' + capital + ' is tied up, not spent', time: hold + ' days, about ' + econ.minutes + ' minutes of active work' },
+      { text: 'Net verdict: the farm costs about ' + money(econ.gas_total) + " of gas for a shot at this protocol's launch. At the model's implied value of " + moneyLong(implied) + ', a 0.1% allocation would be worth about ' + moneyLong(share) + ' — more than the gas if it ever lands, but the allocation is not guaranteed and could be zero. Farm only with money you can leave locked for ' + hold + ' days.', cost: 'about ' + money(econ.gas_total) + ' of gas at risk', time: 'decided before the token launches' }
     ].map(stepText);
   }
 
@@ -380,21 +398,65 @@
     );
   }
 
+  function oosRow(split, n, v3err, v2err, v3x, v2x) {
+    return el('tr', null,
+      el('td', { text: split }),
+      el('td', { class: 'num', text: String(n) }),
+      el('td', { class: 'num', text: v3err }),
+      el('td', { class: 'num', text: v2err }),
+      el('td', { class: 'num', text: v3x }),
+      el('td', { class: 'num', text: v2x })
+    );
+  }
+
   function modelPanel() {
+    var fit = DATA.fit;
     var m = DATA.model;
-    var globalMult = DATA.category_multiples.__global__;
+    var effectText = fit.effects && Object.keys(fit.effects).length > 0
+      ? 'The category effect is the median residual for the category, shrunk by n / (n + ' + m.shrink_k + ') and capped at ±' + m.category_effect_cap + ' log unit; categories with fewer than ' + m.min_category_n + ' traded comps get no effect at all.'
+      : '';
     return el('section', { class: 'panel model' },
       el('h2', { text: 'How implied value is computed' }),
-      el('p', { class: 'sub', text: 'Every row is scored by one function of the snapshot figures. No protocol name is special-cased, and no row is hand-picked.' }),
+      el('p', { class: 'sub', text: 'Every row is scored by one function of the snapshot figures, fitted from this snapshot at run time. No protocol name is special-cased, and no row is hand-picked.' }),
       el('div', { class: 'formula' },
-        'implied = round( tvl_usd x category_multiple x (1 + clamp(change_7d, ' + m.growth_floor + ', ' + m.growth_cap + ') / 100 x ' + m.growth_weight + ') x (' + m.maturity_floor + ' + min(age_days, ' + m.maturity_days + ') / ' + m.maturity_days + ' x ' + m.maturity_range + ') x (1 + ' + m.reach_step + ' x min(chains - 1, ' + m.reach_max_extra_chains + ')) )'
+        'implied = round( exp( a + b x log(tvl_usd) + category effect ) )'
       ),
-      el('p', { class: 'sub', text: 'The category multiple is the median market-cap-to-TVL ratio of the live-token protocols in the same category, computed from this snapshot: categories with fewer than ' + m.category_min_samples + ' live samples use the global median of ' + globalMult + ', and every multiple is clamped to [' + m.category_multiple_floor + ', ' + m.category_multiple_cap + ']. Age is the time since the protocol was first listed, the best record of how long it has run with no token; an unlisted age uses ' + m.unknown_age_days + ' days. The early radar is every pre-token protocol below the watchlist floor, by TVL, and the live-token protocols are set aside with their market caps shown.' })
+      el('p', { class: 'sub', text: 'Fitted from this snapshot: a = ' + fit.intercept.toFixed(3) + ', b = ' + fit.slope.toFixed(3) + ', from ' + fit.n + ' traded-token protocols with a positive market cap. Centralised-exchange tokens are excluded from the fit — their value is not tied to protocol TVL. Market cap grows roughly like the square root of TVL (fitted slope 0.47), so a straight TVL multiple would overvalue the largest protocols and undervalue the small ones. ' + effectText }),
+      el('h3', { text: 'Tested out of sample — held-out tokens the model never saw' }),
+      el('div', { class: 'table-wrap' },
+        el('table', { class: 'oos' },
+          el('thead', null, el('tr', null,
+            el('th', { scope: 'col', text: 'Held-out split' }),
+            el('th', { scope: 'col', text: 'n' }),
+            el('th', { scope: 'col', text: 'Median error, this model' }),
+            el('th', { scope: 'col', text: 'Median error, old model' }),
+            el('th', { scope: 'col', text: 'Within 2x, this model' }),
+            el('th', { scope: 'col', text: 'Within 2x, old model' })
+          )),
+          el('tbody', null,
+            oosRow('Tokens listed from 2024 onward', 51, '73.9%', '93.4%', '43.1%', '19.6%'),
+            oosRow('Random 70/30 split', 35, '90.3%', '230.0%', '28.6%', '17.1%'),
+            oosRow('Mean over 7 held-out splits', '7 splits', '85.4%', '111.6%', '29.2%', '22.3%')
+          )
+        )
+      ),
+      el('p', { class: 'sub', text: 'Both models were refit on the training part of each split only, so the held-out tokens never leaked into the fit. This model wins 5 of the 7 splits on median error and loses 2 narrowly (by 0.2 and 2.9 percentage points). These are errors, not accuracy: a median error near 75–90% is close to the noise floor of this data.' }),
+      el('h3', { text: 'What did not make it into the value' }),
+      el('p', { class: 'sub', text: 'Seven-day growth, protocol age and chain count were tested against the same traded tokens and dropped: their correlations with log(market cap / TVL) are −0.15, −0.02 and −0.04, and adding any of them made the held-out error worse. They are shown on the board as context, not as factors — a fast-growing or long-running protocol is not worth more on this evidence.' }),
+      el('h3', { text: 'How wide the estimate is' }),
+      el('p', { class: 'sub', text: 'Market cap per dollar of TVL varies from 0.00025x to 400x across traded tokens — about a million-fold — so any launch value is a wide estimate. The ranking is the product; the dollar figure is an order-of-magnitude guide. The model is also fitted on traded tokens and applied to pre-token protocols: if pre-token protocols differ systematically from the ones that made it to market, the test numbers overstate how well launch values are predicted, and nothing in the snapshot can test that.' })
     );
   }
 
   var dialog = el('dialog', { class: 'detail', id: 'detail', 'aria-labelledby': 'detail-title' });
   dialog.addEventListener('close', function () { state.selected = null; writeHash(); });
+
+  function effectLabel(row) {
+    var effect = row.category_effect;
+    var sign = effect >= 0 ? '+' : '';
+    if (effect === 0) return '0.00 — no effect';
+    return sign + effect.toFixed(2) + ' log units';
+  }
 
   function openDetail(slug) {
     var row = DATA.rows.filter(function (r) { return r.slug === slug; })[0];
@@ -415,23 +477,22 @@
       el('h3', { text: 'Implied value' }),
       el('div', { class: 'equation' },
         el('div', null, el('span', { text: 'TVL' }), el('b', { class: 'num', text: fmtUsd(row.tvl_usd) })),
-        el('div', null, el('span', { text: 'Category multiple' }), el('b', { class: 'num', text: String(row.category_multiple) })),
-        el('div', null, el('span', { text: 'Seven-day growth' }), el('b', { class: 'num', text: fmtPct(row.change_7d) })),
-        el('div', null, el('span', { text: 'Growth multiplier' }), el('b', { class: 'num', text: String(row.growth_multiplier) })),
-        el('div', null, el('span', { text: 'Age with no token' }), el('b', { class: 'num', text: fmtAge(row.age_days) })),
-        el('div', null, el('span', { text: 'Maturity multiplier' }), el('b', { class: 'num', text: String(row.maturity_multiplier) })),
-        el('div', null, el('span', { text: 'Reach multiplier' }), el('b', { class: 'num', text: String(row.reach_multiplier) })),
+        el('div', null, el('span', { text: 'log(TVL)' }), el('b', { class: 'num', text: row.log_tvl.toFixed(2) })),
+        el('div', null, el('span', { text: 'Size curve value' }), el('b', { class: 'num', text: fmtUsd(row.size_curve_value) })),
+        el('div', null, el('span', { text: 'Category effect' }), el('b', { class: 'num', text: effectLabel(row) })),
         el('div', null, el('span', { text: 'Implied value' }), el('b', { class: 'num', text: fmtUsd(row.implied_value_usd) }))
       ),
-      el('p', { class: 'sub', text: 'Model ' + DATA.model_version + ': the same function scores every protocol. The page recomputes this row as ' + fmtUsd(impliedOf(row, DATA.model)) + (impliedOf(row, DATA.model) === row.implied_value_usd ? ', the same number board.json carries.' : ', which differs from the board: the data would be stale.') + ' This is an estimate, not a price.' })
+      el('p', { class: 'sub', text: 'Model ' + DATA.model_version + ': the same function scores every protocol. The page recomputes this row as ' + fmtUsd(impliedOf(row)) + (impliedOf(row) === row.implied_value_usd ? ', the same number board.json carries.' : ', which differs from the board: the data would be stale.') + ' This is an estimate, not a price.' + (row.category_effect === 0 ? ' No category effect: ' + (row.category || 'this category') + ' has fewer than 2 traded-token comps in the fit sample, so the size curve alone sets the value.' : ' Category effect for ' + (row.category || 'this category') + ' from its traded comps.') }),
+      el('p', { class: 'sub', text: 'Context, not factors: 7-day growth ' + fmtPct(row.change_7d) + ', age with no token ' + fmtAge(row.age_days) + ', ' + (row.chains ? row.chains.length : 0) + ' chain' + ((row.chains ? row.chains.length : 0) === 1 ? '' : 's') + '. Tested, they did not predict traded market caps, so they do not move the value.' })
     ));
     dialog.appendChild(el('section', { class: 'detail-section' },
       el('h3', { text: 'Farm plan' }),
-      el('ol', { class: 'steps' }, steps.map(function (s) {
+      el('ol', { class: 'steps' }, steps.map(function (s, i) {
         var at = s.indexOf(' Cost: ');
         var action = at >= 0 ? s.slice(0, at) : s;
         var tail = at >= 0 ? s.slice(at + 1) : '';
-        return el('li', null, el('b', { text: action }), el('span', { class: 'cost', text: tail }));
+        var liAttrs = i >= 8 ? { class: 'econ' } : null;
+        return el('li', liAttrs, el('b', { text: action }), el('span', { class: 'cost', text: tail }));
       }))
     ));
     if (typeof dialog.showModal === 'function') {

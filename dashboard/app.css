@@ -102,7 +102,13 @@ tbody tr[data-selected="true"] { background: color-mix(in srgb, var(--accent) 8%
 .status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 
 .model { margin-top: var(--step-4); padding: var(--step-5); display: grid; gap: var(--step-3); }
+.model h3 { margin-top: var(--step-2); }
+.model p { max-width: 78ch; }
 .formula { font-family: var(--font-num); font-size: 13px; line-height: 1.7; color: var(--muted); overflow-wrap: anywhere; }
+table.oos { font-size: 13px; }
+table.oos th, table.oos td { padding: var(--step-2) var(--step-3); }
+table.oos tbody tr { cursor: default; }
+table.oos tbody tr:last-child td { font-weight: 600; border-bottom: 0; }
 .empty { padding: var(--step-7) var(--step-5); text-align: center; display: grid; gap: var(--step-3); justify-items: center; }
 .empty p { color: var(--muted); }
 .button { min-height: 36px; padding: 0 var(--step-4); border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface); }
@@ -125,10 +131,17 @@ tbody tr[data-selected="true"] { background: color-mix(in srgb, var(--accent) 8%
 .detail-section { margin-top: var(--step-5); padding-top: var(--step-4); border-top: 1px solid var(--border); }
 .detail-section h3 { margin-bottom: var(--step-2); }
 .equation { display: grid; gap: var(--step-2); font-family: var(--font-num); font-size: 13px; }
-.equation div { display: flex; justify-content: space-between; gap: var(--step-3); }
+.equation div { display: flex; justify-content: space-between; gap: var(--step-3); flex-wrap: wrap; min-width: 0; }
 .equation span { color: var(--muted); }
+.equation b { overflow-wrap: anywhere; text-align: right; }
 .steps { margin: 0; padding-left: var(--step-5); display: grid; gap: var(--step-3); }
 .steps li { padding-left: var(--step-1); }
+.steps li.econ {
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+  border: 1px solid var(--border); border-radius: var(--radius-control);
+  padding: var(--step-2) var(--step-3); margin-left: calc(-1 * var(--step-3));
+  list-style-position: inside;
+}
 .steps b { display: block; font-weight: 500; }
 .cost { color: var(--muted); font-size: 12px; font-family: var(--font-num); }
 
